@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CarPlay OS</title>
+    
+    <!-- Tailwind CSS v4 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Pro San Francisco/Inter Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Vectors Framework (Lucide Icons) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Interactive Map Engine -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #08080a;
+            user-select: none;
+            overflow: hidden;
+        }
+
+        .carplay-tile {
+            background-color: #16161c;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+            border-radius: 24px;
+        }
+
+        /* Viewport State Transition Engine */
+        .screen-view {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(0.98);
+            transition: opacity 0.35s cubic-bezier(0.25, 1, 0.5, 1), transform 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+            z-index: 0;
+        }
+        
+        .screen-view.view-active {
+            opacity: 1;
+            pointer-events: auto;
+            transform: scale(1);
+            z-index: 10;
+        }
+
+        .app-icon {
+            transition: all 0.2s ease;
+        }
+        .app-icon:active { transform: scale(0.9); }
+        .app-icon.active {
+            color: #62ff00; /* High Visibility Petrol Amber Accent */
+            background-color: rgba(212, 255, 0, 0.15);
+        }
+
+        /* Clean Leaflet Map Layout Setup */
+        .leaflet-control-container { display: none !important; }
+        .leaflet-container { background: #101012 !important; width: 100% !important; height: 100% !important; }
+        
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+            height: 5px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ffffff;
+            cursor: pointer;
+        }
+
+        /* Fluid Siri Glow Signature Engine */
+        .siri-blob {
+            filter: blur(14px);
+            mix-blend-mode: screen;
+            animation: floatSiri 2.2s infinite alternate ease-in-out;
+        }
+
+        @keyframes floatSiri {
+            0 { transform: scale(1) translateY(0px); opacity: 0.7; }
+            100% { transform: scale(1.2) translateY(-4px); opacity: 0.95; }
+        }
+
+        .queue-scroll::-webkit-scrollbar { width: 4px; }
+        .queue-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 10px; }
+    </style>
+</head>
+<body class="h-screen w-screen text-slate-200 flex p-3 gap-3 relative antialiased">
+
+    <!-- FLOATING iOS SIRI ASSISTANT OVERLAY PORTAL -->
+    <div id="siri-panel" class="absolute bottom-4 left-1/2 -translate-x-1/2 w-85 h-18 bg-[#16161c]/95 backdrop-blur-xl border border-white/10 rounded-2xl z-[99999] p-3 flex items-center justify-between pointer-events-none opacity-0 translate-y-6 transition-all duration-300 shadow-2xl">
+        <div class="flex items-center gap-3">
+            <div class="relative w-8 h-8 flex items-center justify-center shrink-0">
+                <div class="siri-blob absolute w-6 h-6 bg-cyan-500 rounded-full left-0 animate-pulse"></div>
+                <div class="siri-blob absolute w-6 h-6 bg-purple-500 rounded-full right-0" style="animation-delay: 0.4s"></div>
+                <div class="siri-blob absolute w-5 h-5 bg-pink-500 rounded-full bottom-0" style="animation-delay: 0.8s"></div>
+            </div>
+            <div class="flex flex-col">
+                <span class="text-xs font-bold text-slate-100" id="siri-header">Siri is listening...</span>
+                <span class="text-[10px] text-slate-400 font-medium truncate max-w-[200px]" id="siri-text">Say "Go to Beach" or "Find Gas"</span>
+            </div>
+        </div>
+        <span class="text-[9px] text-amber-500 font-mono tracking-wider font-bold bg-amber-500/10 px-2 py-1 rounded-md border border-amber-500/20">VOICE CONTROL</span>
+    </div>
+
+    <!-- QUICK SWITCH AUTOMOTIVE DOCK PANEL -->
+    <div class="w-20 h-full bg-[#0d0d10] border border-white/5 rounded-2xl flex flex-col justify-between items-center py-4 px-2 shrink-0 z-50 shadow-xl">
+        <div class="flex flex-col items-center text-center">
+            <span class="text-white font-bold text-sm tracking-tight" id="sidebar-time">12:00</span>
+            <div class="mt-2 bg-black/40 px-2 py-1 rounded-lg border border-white/5">
+                <span id="hud-speed" class="text-xs font-black font-mono text-white block">0</span>
+                <span class="text-[7px] text-slate-400 font-bold uppercase tracking-wider block">KM/H</span>
+            </div>
+        </div>
+
+        <div class="flex flex-col gap-4 w-full">
+            <button id="nav-dash" class="app-icon active w-full aspect-square rounded-xl flex items-center justify-center text-slate-400 hover:text-white cursor-pointer">
+                <i data-lucide="layout-grid" class="w-6 h-6 stroke-[2.2]"></i>
+            </button>
+            <button id="nav-map" class="app-icon w-full aspect-square rounded-xl flex items-center justify-center text-slate-400 hover:text-white cursor-pointer">
+                <i data-lucide="map" class="w-6 h-6 stroke-[2.2]"></i>
+            </button>
+            <button id="nav-music" class="app-icon w-full aspect-square rounded-xl flex items-center justify-center text-slate-400 hover:text-white cursor-pointer">
+                <i data-lucide="music" class="w-6 h-6 stroke-[2.2]"></i>
+            </button>
+        </div>
+
+        <button class="w-12 h-12 rounded-full border border-slate-700 bg-[#16161c] flex items-center justify-center active:scale-90 transition cursor-pointer" id="carplay-home-toggle">
+            <div class="w-5 h-5 rounded-md border border-slate-500/30 bg-slate-800/20"></div>
+        </button>
+    </div>
+
+    <!-- DISPLAY SCREEN STAGING AREA -->
+    <div class="flex-1 h-full relative overflow-hidden">
+        
+        <!-- MODULE 1: THE SPLIT-SCREEN HOME DASHBOARD -->
+        <div id="view-dashboard" class="screen-view view-active grid grid-cols-12 gap-3">
+            <!-- Left Side: Interactive Map Frame -->
+            <div class="col-span-7 carplay-tile overflow-hidden relative">
+                <div id="carplaySplitMap" class="w-full h-full"></div>
+                
+                <div class="absolute top-3 left-3 bg-[#111115]/95 backdrop-blur-md px-4 py-3 rounded-xl z-[1000] flex items-center gap-3 max-w-xs border border-white/5 shadow-2xl">
+                    <div class="w-9 h-9 rounded-lg bg-amber-500 flex items-center justify-center shadow-lg shrink-0">
+                        <i data-lucide="navigation" class="w-4 h-4 text-black stroke-[2.5]" id="routing-icon"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-xs font-bold text-white tracking-tight" id="routing-title">Virar Satellite Map</h4>
+                        <p class="text-[10px] text-slate-400 mt-0.5" id="routing-sub">Staged in Maharashtra, India</p>
+                    </div>
+                </div>
+
+                <div class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-[#111115]/90 backdrop-blur-md px-3 py-1.5 rounded-xl z-[1000] flex gap-2 border border-white/5 items-center w-[92%] justify-between">
+                    <div class="flex gap-1.5">
+                        <button onclick="panMapEngine([19.4703, 72.8152], 'Virar Station', 'Commuter Railway Line Hub')" class="bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition cursor-pointer">Station</button>
+                        <button onclick="panMapEngine([19.4570, 72.7580], 'Arnala Beach', 'Arnala West Coastal Road')" class="bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition cursor-pointer">Arnala Beach</button>
+                    </div>
+                    <button id="map-poi-btn" class="bg-amber-500/20 border border-amber-500/30 text-amber-500 font-bold text-[9px] tracking-wider px-2.5 py-1.5 rounded-lg transition cursor-pointer uppercase">Find Gas Station</button>
+                </div>
+            </div>
+
+            <!-- Right Side: Unified Media Stack & Car Controls -->
+            <div class="col-span-5 flex flex-col gap-3 h-full min-h-0">
+                <div class="carplay-tile flex-1 p-4 flex flex-col justify-between min-h-0">
+                    <div class="flex gap-3 items-center">
+                        <div class="w-14 h-14 rounded-xl bg-gradient-to-tr from-amber-500 to-rose-600 flex items-center justify-center shadow-md shrink-0" id="album-art-glow">
+                            <i data-lucide="music-4" class="w-6 h-6 text-black"></i>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <span class="text-[9px] font-bold text-amber-500 tracking-wider uppercase block">Now Playing</span>
+                            <h3 id="dash-track-title" class="text-sm font-bold text-white truncate tracking-tight mt-0.5">Media Library Empty</h3>
+                            <p id="dash-track-artist" class="text-[11px] text-slate-400 truncate">Tap 'Open Files' in Music tab</p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1">
+                        <div id="dash-progress-timeline" class="w-full bg-white/10 h-1 rounded-full overflow-hidden cursor-pointer">
+                            <div id="dash-progress-bar" class="bg-amber-500 h-full w-0"></div>
+                        </div>
+                        <div class="flex justify-between text-[9px] text-slate-500 font-mono">
+                            <span id="dash-time-current">0:00</span>
+                            <span id="dash-time-duration">0:00</span>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-between items-center bg-black/20 p-2 rounded-xl border border-white/5">
+                        <div class="flex items-center gap-2 flex-1 max-w-[110px]">
+                            <i data-lucide="volume-2" class="w-3.5 h-3.5 text-slate-400"></i>
+                            <input type="range" id="volume-slider" min="0" max="1" step="0.05" value="0.7" class="w-full accent-white cursor-pointer">
+                        </div>
+                        <div class="flex items-center gap-2.5">
+                            <button id="dash-ctrl-prev" class="text-slate-400 hover:text-white cursor-pointer"><i data-lucide="skip-back" class="w-4 h-4 fill-current"></i></button>
+                            <button id="dash-ctrl-play" class="bg-white text-slate-950 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer">
+                                <i data-lucide="play" id="dash-icon-play" class="w-3.5 h-3.5 fill-current ml-0.5 text-black"></i>
+                                <i data-lucide="pause" id="dash-icon-pause" class="w-3.5 h-3.5 fill-current hidden text-black"></i>
+                            </button>
+                            <button id="dash-ctrl-next" class="text-slate-400 hover:text-white cursor-pointer"><i data-lucide="skip-forward" class="w-4 h-4 fill-current"></i></button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Telemetry & Dynamic Trip Computer -->
+                <div class="carplay-tile h-[50%] p-4 flex flex-col justify-between bg-[#16161c]">
+                    <div class="flex justify-between items-start gap-2">
+                        <div class="space-y-1">
+                            <div class="flex items-center gap-2">
+                                <button class="w-8 h-8 rounded-lg bg-white/5 border border-white/5 text-slate-300 active:bg-white/10 transition font-bold flex items-center justify-center cursor-pointer" onclick="adjustClimateValue(-1)">−</button>
+                                <span id="climate-num-display" class="text-xl font-bold tracking-tight text-white min-w-[2rem] text-center">72°</span>
+                                <button class="w-8 h-8 rounded-lg bg-white/5 border border-white/5 text-slate-300 active:bg-white/10 transition font-bold flex items-center justify-center cursor-pointer" onclick="adjustClimateValue(1)">+</button>
+                            </div>
+                            <!-- Live Trip Tracker HUD values -->
+                            <div class="grid grid-cols-2 gap-2 text-[9px] font-semibold text-slate-400 uppercase tracking-tight mt-1.5">
+                                <div>Dist: <span id="trip-dist" class="text-slate-200 font-mono">0.0 km</span></div>
+                                <div>Time: <span id="trip-time" class="text-slate-200 font-mono">00:00</span></div>
+                                <div>Avg MPG: <span id="trip-mpg" class="text-slate-200 font-mono">24.2</span></div>
+                                <div>Coolant: <span id="trip-temp" class="text-slate-200 font-mono">180°F</span></div>
+                            </div>
+                        </div>
+                        <div class="text-right shrink-0">
+                            <span id="fuel-badge" class="text-sm font-bold text-amber-500 font-mono tracking-tight block">⛽ 75% FUEL</span>
+                            <span id="range-badge" class="text-[8px] text-slate-500 font-bold block tracking-wider uppercase mt-0.5">340 MILES LEFT</span>
+                            
+                            <!-- Synth Audio Engine Controller toggle -->
+                            <button id="engine-sound-toggle" class="mt-2 text-[9px] bg-slate-900 border border-white/10 rounded px-2 py-1 text-slate-400 hover:text-white transition flex items-center gap-1 cursor-pointer">
+                                <i data-lucide="volume-x" class="w-3 h-3 text-rose-500" id="sound-mute-icon"></i>
+                                <span id="sound-mute-text">Synth Muted</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-between items-center gap-2 mt-2">
+                        <button id="sim-drive-btn" class="flex-1 py-2 rounded-xl text-[10px] font-bold border border-white/10 bg-white/5 text-slate-300 cursor-pointer flex items-center justify-center gap-1.5 hover:bg-white/10 transition">
+                            <i data-lucide="play-circle" class="w-3.5 h-3.5 text-amber-500"></i> SIMULATE TRIP
+                        </button>
+                        <button id="siri-trigger-btn" class="bg-amber-500/10 border border-amber-500/20 text-amber-500 px-3 py-2 rounded-xl text-[10px] font-bold transition cursor-pointer flex items-center gap-1 hover:bg-amber-500/20"><i data-lucide="mic" class="w-3 h-3"></i> Ask Siri</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODULE 2: DEDICATED FULL-SCREEN MAP PLATFORM -->
+        <div id="view-map" class="screen-view carplay-tile overflow-hidden">
+            <div id="carplayFullMap" class="w-full h-full"></div>
+        </div>
+
+        <!-- MODULE 3: FULL-SCALE NATIVE JUKEBOX ARCHITECTURE -->
+        <div id="view-music" class="screen-view carplay-tile p-6 flex gap-6">
+            <div class="w-1/3 flex flex-col justify-between bg-black/20 p-5 rounded-2xl border border-white/5">
+                <div class="text-center space-y-4">
+                    <div class="w-40 h-40 mx-auto rounded-2xl bg-gradient-to-tr from-amber-500 to-rose-600 flex items-center justify-center shadow-xl" id="full-album-art">
+                        <i data-lucide="music" class="w-16 h-16 text-black"></i>
+                    </div>
+                    <div>
+                        <h2 id="full-track-title" class="text-lg font-bold text-white truncate">Media Engine Standby</h2>
+                        <p id="full-track-artist" class="text-xs text-slate-400 truncate mt-1">Load file matrices</p>
+                    </div>
+                </div>
+                
+                <div class="space-y-4">
+                    <div id="full-progress-timeline" class="w-full bg-white/10 h-1 rounded-full overflow-hidden cursor-pointer">
+                        <div id="full-dash-progress" class="bg-amber-500 h-full w-0"></div>
+                    </div>
+                    <div class="flex justify-center gap-6 items-center">
+                        <button id="full-ctrl-prev" class="text-slate-400 hover:text-white cursor-pointer"><i data-lucide="skip-back" class="w-5 h-5 fill-current"></i></button>
+                        <button id="full-ctrl-play" class="bg-white text-black w-10 h-10 rounded-full flex items-center justify-center cursor-pointer">
+                            <i data-lucide="play" id="full-icon-play" class="w-4 h-4 fill-current ml-0.5"></i>
+                            <i data-lucide="pause" id="full-icon-pause" class="w-4 h-4 fill-current hidden"></i>
+                        </button>
+                        <button id="full-ctrl-next" class="text-slate-400 hover:text-white cursor-pointer"><i data-lucide="skip-forward" class="w-5 h-5 fill-current"></i></button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-1 flex flex-col justify-between min-h-0">
+                <div class="flex justify-between items-center border-b border-white/5 pb-3">
+                    <div>
+                        <h3 class="font-bold text-white text-base">Track Library</h3>
+                        <p class="text-xs text-slate-400">Stream storage arrays natively</p>
+                    </div>
+                    <input type="file" id="media-core-input" multiple accept="audio/*" class="hidden">
+                    <label for="media-core-input" class="bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold text-xs px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-md">
+                        <i data-lucide="plus" class="w-4 h-4"></i> Open Files
+                    </label>
+                </div>
+
+                <div id="music-list-viewport" class="flex-1 overflow-y-auto queue-scroll space-y-1 py-3 pr-1 text-sm">
+                    <div class="text-slate-500 italic text-center py-16 text-xs">No files staged inside deployment lanes.</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        // --- DASHBOARD CONFIG PARAMETERS ---
+        let baseFuelLevel = 75; // Fuel Tank percentage
+        let baseVehicleRange = 340; // Miles left on tank
+        let cabinClimateVal = 72;
+        let isAcPowerOn = true;
+        let mapPoiActive = false;
+        let poiMarkersList = [];
+
+        // --- THEME VIEW PORTAL ENGAGEMENT ENGINE ---
+        const uiViews = { 'nav-dash': 'view-dashboard', 'nav-map': 'view-map', 'nav-music': 'view-music' };
+        let activeRouteId = 'nav-dash';
+
+        function switchCarplayViewport(targetId) {
+            if (targetId === activeRouteId) return;
+            document.getElementById(activeRouteId).classList.remove('active');
+            document.getElementById(targetId).classList.add('active');
+
+            document.getElementById(uiViews[activeRouteId]).classList.remove('view-active');
+            document.getElementById(uiViews[targetId]).classList.add('view-active');
+            activeRouteId = targetId;
+
+            // Trigger refits flawlessly to prevent canvas sizing issues
+            setTimeout(() => { 
+                splitMap.invalidateSize(); 
+                fullMap.invalidateSize(); 
+            }, 50);
+        }
+
+        Object.keys(uiViews).forEach(id => {
+            document.getElementById(id).addEventListener('click', () => switchCarplayViewport(id));
+        });
+        document.getElementById('carplay-home-toggle').addEventListener('click', () => switchCarplayViewport('nav-dash'));
+
+        // --- INITIALIZE MAP CONTAINER ARRAYS (CENTERED ON VIRAR, MH, INDIA) ---
+        const mapOptions = { center: [19.4703, 72.8152], zoom: 14, zoomControl: false, attributionControl: false };
+        const splitMap = L.map('carplaySplitMap', mapOptions);
+        const fullMap = L.map('carplayFullMap', mapOptions);
+
+        const mapTiles = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+        L.tileLayer(mapTiles, { maxZoom: 19 }).addTo(splitMap);
+        L.tileLayer(mapTiles, { maxZoom: 19 }).addTo(fullMap);
+
+        // Core marker highlighting actual position
+        L.marker([19.4703, 72.8152]).addTo(splitMap).bindPopup('<b>Virar, MH, India</b><br>Actual Location Staged.').openPopup();
+        L.marker([19.4703, 72.8152]).addTo(fullMap);
+
+        function panMapEngine(coordinates, locName, instruction) {
+            splitMap.panTo(coordinates, { animate: true, duration: 1.0 });
+            fullMap.panTo(coordinates);
+            document.getElementById('routing-title').innerText = locName;
+            document.getElementById('routing-sub').innerText = instruction;
+        }
+
+        // --- PROGRAMMATIC PETROL STATION POI TARGETS ---
+        const mockPetrolStations = [
+            [19.4690, 72.8180], // Indian Oil Pump near Virar Station
+            [19.4620, 72.7980], // Bolinj HP Petrol Pump
+            [19.4750, 72.8350]  // Mumbai Road Petrol Pump Link
+        ];
+
+        document.getElementById('map-poi-btn').addEventListener('click', function() {
+            mapPoiActive = !mapPoiActive;
+            if (mapPoiActive) {
+                this.className = "bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 font-bold text-[9px] tracking-wider px-2.5 py-1.5 rounded-lg transition cursor-pointer uppercase";
+                mockPetrolStations.forEach(coords => {
+                    let m = L.marker(coords, {
+                        icon: L.divIcon({
+                            className: 'custom-div-icon',
+                            html: "<div style='width:24px; height:24px; background:#f59e0b; border:2px solid #fff; border-radius:50%; display:flex; align-items:center; justify-content:center; box-shadow:0 0 10px rgba(245,158,11,0.5); font-size:12px;'>⛽</div>",
+                            iconSize: [24, 24],
+                            iconAnchor: [12, 12]
+                        })
+                    }).addTo(splitMap).bindPopup('<b>Petrol Pump Station</b><br>Open 24 hours');
+                    poiMarkersList.push(m);
+                });
+            } else {
+                this.className = "bg-amber-500/20 border border-amber-500/30 text-amber-500 font-bold text-[9px] tracking-wider px-2.5 py-1.5 rounded-lg transition cursor-pointer uppercase";
+                poiMarkersList.forEach(m => splitMap.removeLayer(m));
+                poiMarkersList = [];
+            }
+        });
+
+        // --- WEB AUDIO API ICE ENGINE SOUND SYNTHESIS ---
+        let audioCtx = null;
+        let motorOsc = null;
+        let motorGain = null;
+        let isEngineMuted = true;
+
+        function initEngineSound() {
+            if (audioCtx) return;
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Low frequency oscillator representing combustion cylinders
+                motorOsc = audioCtx.createOscillator();
+                motorOsc.type = 'sawtooth';
+                motorOsc.frequency.setValueAtTime(22, audioCtx.currentTime); // Deep engine rumble
+
+                // Custom low-pass filter to sound like an engine block dampening
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(140, audioCtx.currentTime);
+
+                // Control volume
+                motorGain = audioCtx.createGain();
+                motorGain.gain.setValueAtTime(isEngineMuted ? 0 : 0.08, audioCtx.currentTime);
+
+                motorOsc.connect(filter);
+                filter.connect(motorGain);
+                motorGain.connect(audioCtx.destination);
+                
+                motorOsc.start();
+            } catch (e) {
+                console.error("Web Audio API not supported", e);
+            }
+        }
+
+        function setEnginePitchAndVolume(speed) {
+            if (!audioCtx) initEngineSound();
+            if (!audioCtx) return;
+            
+            // Speed controls motor frequency (pitch revs)
+            let pitchHz = 22 + (speed * 0.95);
+            motorOsc.frequency.setTargetAtTime(pitchHz, audioCtx.currentTime, 0.1);
+            
+            // Slightly amplify under acceleration loads
+            let dynamicGain = isEngineMuted ? 0 : (0.05 + (speed * 0.0006));
+            motorGain.gain.setTargetAtTime(dynamicGain, audioCtx.currentTime, 0.2);
+        }
+
+        document.getElementById('engine-sound-toggle').addEventListener('click', function() {
+            isEngineMuted = !isEngineMuted;
+            const icon = document.getElementById('sound-mute-icon');
+            const txt = document.getElementById('sound-mute-text');
+            
+            if (isEngineMuted) {
+                icon.setAttribute('data-lucide', 'volume-x');
+                icon.className = 'w-3 h-3 text-rose-500';
+                txt.innerText = 'Synth Muted';
+                if (motorGain) motorGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+            } else {
+                icon.setAttribute('data-lucide', 'volume-2');
+                icon.className = 'w-3 h-3 text-emerald-400';
+                txt.innerText = 'Synth Active';
+                initEngineSound();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                if (motorGain) motorGain.gain.setTargetAtTime(0.08, audioCtx.currentTime, 0.1);
+            }
+            lucide.createIcons();
+        });
+
+
+        // --- AUTOMOTIVE TELEMETRY SIM DRIVE ENGINE (VIRAR COORDINATE SEQUENCE) ---
+        let driveTimerInterval = null;
+        let isDrivingActive = false;
+        let driveCoordsSequence = [
+            [19.4703, 72.8152], // Virar Station (Center)
+            [19.4680, 72.8050], // Yashwant Nagar Crossing
+            [19.4650, 72.7950], // Bolinj Junction
+            [19.4600, 72.7800], // Agashi Road
+            [19.4570, 72.7580]  // Arnala Beach (Destination)
+        ];
+        let driveStepIdx = 0;
+
+        // Trip Computer Data Fields
+        let tripDistanceKm = 0.0;
+        let tripElapsedTimeSeconds = 0;
+        let tripAverageMpg = 24.2;
+        let coolantTemperatureF = 180;
+
+        document.getElementById('sim-drive-btn').addEventListener('click', function() {
+            isDrivingActive = !isDrivingActive;
+            if (isDrivingActive) {
+                this.innerHTML = `<i data-lucide="stop-circle" class="w-3.5 h-3.5 text-rose-400"></i> END TRIP`;
+                this.className = "flex-1 py-2 rounded-xl text-[10px] font-bold border border-rose-500/30 bg-rose-500/10 text-rose-400 cursor-pointer flex items-center justify-center gap-1.5 transition";
+                
+                // Initialize engine sound on click
+                initEngineSound();
+                if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+                
+                executeDriveTelemetrySimulationLoop();
+            } else {
+                this.innerHTML = `<i data-lucide="play-circle" class="w-3.5 h-3.5 text-amber-500"></i> SIMULATE TRIP`;
+                this.className = "flex-1 py-2 rounded-xl text-[10px] font-bold border border-white/10 bg-white/5 text-slate-300 cursor-pointer flex items-center justify-center gap-1.5 hover:bg-white/10 transition";
+                
+                clearInterval(driveTimerInterval);
+                document.getElementById('hud-speed').innerText = "0";
+                
+                // Wind down engine pitch
+                setEnginePitchAndVolume(0);
+            }
+            lucide.createIcons();
+        });
+
+        function executeDriveTelemetrySimulationLoop() {
+            driveTimerInterval = setInterval(() => {
+                let generatedMockSpeed = Math.floor(Math.random() * (78 - 35 + 1)) + 35; // Suburban Virar ICE speeds
+                document.getElementById('hud-speed').innerText = generatedMockSpeed;
+                
+                // Drive synthesizer engine audio controls
+                setEnginePitchAndVolume(generatedMockSpeed);
+
+                // Pan map coordinates forward chronologically across the Virar region
+                driveStepIdx = (driveStepIdx + 1) % driveCoordsSequence.length;
+                let nextLocNode = driveCoordsSequence[driveStepIdx];
+                splitMap.panTo(nextLocNode, { animate: true, duration: 1.0 });
+                
+                // Update live Trip Computer Matrix values
+                tripElapsedTimeSeconds += 3; // Adds 3 simulated seconds per iteration
+                tripDistanceKm += parseFloat(((generatedMockSpeed * 3) / 3600).toFixed(2)); // speed over time
+                coolantTemperatureF = Math.min(212, Math.max(178, coolantTemperatureF + Math.floor(Math.random() * 3) - 1)); // ICE thermals fluctuation
+                tripAverageMpg = parseFloat((24.2 + (generatedMockSpeed / 100) - (tripDistanceKm * 0.05)).toFixed(1)); // Fuel calculation formula
+
+                // Refresh DOM Trip nodes
+                document.getElementById('trip-dist').innerText = `${tripDistanceKm.toFixed(1)} km`;
+                document.getElementById('trip-mpg').innerText = `${tripAverageMpg.toFixed(1)}`;
+                document.getElementById('trip-temp').innerText = `${coolantTemperatureF}°F`;
+                
+                // Format elapsed time MM:SS
+                let mins = Math.floor(tripElapsedTimeSeconds / 60).toString().padStart(2, '0');
+                let secs = (tripElapsedTimeSeconds % 60).toString().padStart(2, '0');
+                document.getElementById('trip-time').innerText = `${mins}:${secs}`;
+                
+                // Gradually consume fuel
+                baseFuelLevel = Math.max(5, baseFuelLevel - 1);
+                baseVehicleRange = Math.max(25, Math.round((baseFuelLevel / 100) * 450));
+                
+                document.getElementById('fuel-badge').innerText = `⛽ ${baseFuelLevel}% FUEL`;
+                document.getElementById('range-badge').innerText = `${baseVehicleRange} MILES LEFT`;
+            }, 3000);
+        }
+
+        // --- SIRI INTELLIGENT VOICE ENGINE TRIGGER (REAL SPEECH RECOGNITION) ---
+        const speechRecognitionEngine = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognitionInstance = null;
+
+        if (speechRecognitionEngine) {
+            recognitionInstance = new speechRecognitionEngine();
+            recognitionInstance.continuous = false;
+            recognitionInstance.lang = 'en-US';
+            recognitionInstance.interimResults = false;
+
+            recognitionInstance.onstart = function() {
+                document.getElementById('siri-header').innerText = "Siri listening...";
+                document.getElementById('siri-text').innerText = "Speak a command...";
+            };
+
+            recognitionInstance.onerror = function(event) {
+                document.getElementById('siri-header').innerText = "Siri didn't catch that.";
+                document.getElementById('siri-text').innerText = "Tap & try again.";
+                setTimeout(retractSiriPanel, 2000);
+            };
+
+            recognitionInstance.onresult = function(event) {
+                const voiceSpeechText = event.results[0][0].transcript.toLowerCase();
+                document.getElementById('siri-header').innerText = "Processing Command...";
+                document.getElementById('siri-text').innerText = `"${voiceSpeechText}"`;
+
+                processSiriCommand(voiceSpeechText);
+            };
+        }
+
+        function triggerSiriVoiceEngine() {
+            const panel = document.getElementById('siri-panel');
+            panel.classList.remove('opacity-0', 'translate-y-6');
+            panel.classList.add('opacity-100', 'translate-y-0');
+
+            if (recognitionInstance) {
+                try {
+                    recognitionInstance.start();
+                } catch (err) {
+                    // Fail gracefully if voice engine is busy
+                }
+            } else {
+                // Fallback automated animation if Speech API is disabled or on Safari desktop
+                const fallbackPhrases = ["Navigating through Yashwant Nagar...", "Scanning local petrol queues...", "Siri processing commands..."];
+                let idx = 0;
+                let txtInterval = setInterval(() => {
+                    document.getElementById('siri-text').innerText = fallbackPhrases[idx];
+                    idx++;
+                    if (idx >= fallbackPhrases.length) {
+                        clearInterval(txtInterval);
+                        setTimeout(retractSiriPanel, 1200);
+                    }
+                }, 1500);
+            }
+        }
+
+        function retractSiriPanel() {
+            const panel = document.getElementById('siri-panel');
+            panel.classList.remove('opacity-100', 'translate-y-0');
+            panel.classList.add('opacity-0', 'translate-y-6');
+            setTimeout(() => {
+                document.getElementById('siri-header').innerText = "Siri is listening...";
+                document.getElementById('siri-text').innerText = 'Say "Go to Beach" or "Find Gas"';
+            }, 300);
+        }
+
+        // Voice Command Parsing Node Map
+        function processSiriCommand(spokenText) {
+            let processedResponse = "Command processed.";
+            
+            // Normalize command string
+            const cmd = spokenText.toLowerCase();
+
+            if (cmd.includes("beach") || cmd.includes("arnala")) {
+                panMapEngine([19.4570, 72.7580], 'Arnala Beach', 'Arnala West Coastal Road');
+                processedResponse = "Navigating to Arnala Beach.";
+            } else if (cmd.includes("station") || cmd.includes("train") || cmd.includes("railway")) {
+                panMapEngine([19.4703, 72.8152], 'Virar Station', 'Commuter Railway Line Hub');
+                processedResponse = "Routing to Virar Railway Station.";
+            } else if (cmd.includes("gas") || cmd.includes("petrol") || cmd.includes("fuel")) {
+                document.getElementById('map-poi-btn').click();
+                processedResponse = "Toggling local petrol station markers.";
+            } else if (cmd.includes("drive") || cmd.includes("trip") || cmd.includes("simulate")) {
+                document.getElementById('sim-drive-btn').click();
+                processedResponse = "Simulating Virar trip drive sequence.";
+            } else if (cmd.includes("turn on ac") || cmd.includes("ac on") || cmd.includes("climate on")) {
+                toggleAcPower(true);
+                processedResponse = `Air conditioning activated. Temperature is set to ${cabinClimateVal} degrees.`;
+            } else if (cmd.includes("turn off ac") || cmd.includes("ac off") || cmd.includes("climate off")) {
+                toggleAcPower(false);
+                processedResponse = "Air conditioning deactivated.";
+            } else if (cmd.includes("increase temperature") || cmd.includes("make it warmer") || cmd.includes("temperature up") || cmd.includes("warmer")) {
+                adjustClimateValue(1);
+                processedResponse = `Increasing temperature to ${cabinClimateVal} degrees.`;
+            } else if (cmd.includes("decrease temperature") || cmd.includes("make it cooler") || cmd.includes("temperature down") || cmd.includes("cooler") || cmd.includes("colder")) {
+                adjustClimateValue(-1);
+                processedResponse = `Decreasing temperature to ${cabinClimateVal} degrees.`;
+            } else if (cmd.includes("open map") || cmd.includes("show map") || cmd.includes("go to map")) {
+                switchCarplayViewport('nav-map');
+                processedResponse = "Opening full screen map layout.";
+            } else if (cmd.includes("open music") || cmd.includes("open media player") || cmd.includes("show music") || cmd.includes("open player") || cmd.includes("go to music")) {
+                switchCarplayViewport('nav-music');
+                processedResponse = "Opening media player interface.";
+            } else if (cmd.includes("open dashboard") || cmd.includes("go home") || cmd.includes("show dashboard") || cmd.includes("go to dashboard")) {
+                switchCarplayViewport('nav-dash');
+                processedResponse = "Opening home dashboard split screen view.";
+            } else if (cmd.includes("play music") || cmd.includes("start music") || cmd.includes("resume music") || cmd.includes("turn on music")) {
+                if (audioEngine.paused) playToggleSubroutine();
+                processedResponse = "Playing media tracks.";
+            } else if (cmd.includes("pause music") || cmd.includes("stop music") || cmd.includes("off music") || cmd.includes("turn off music") || cmd.includes("pause")) {
+                if (!audioEngine.paused) playToggleSubroutine();
+                processedResponse = "Playback paused.";
+            } else if (cmd.includes("volume up") || cmd.includes("raise volume") || cmd.includes("increase volume")) {
+                let currentVol = parseFloat(audioEngine.volume);
+                currentVol = Math.min(1, currentVol + 0.15);
+                audioEngine.volume = currentVol;
+                document.getElementById('volume-slider').value = currentVol;
+                processedResponse = `Volume increased to ${Math.round(currentVol * 100)} percent.`;
+            } else if (cmd.includes("volume down") || cmd.includes("lower volume") || cmd.includes("decrease volume")) {
+                let currentVol = parseFloat(audioEngine.volume);
+                currentVol = Math.max(0, currentVol - 0.15);
+                audioEngine.volume = currentVol;
+                document.getElementById('volume-slider').value = currentVol;
+                processedResponse = `Volume decreased to ${Math.round(currentVol * 100)} percent.`;
+            } else if (cmd.includes("mute engine") || cmd.includes("mute sound") || cmd.includes("turn off engine sound")) {
+                if (!isEngineMuted) {
+                    document.getElementById('engine-sound-toggle').click();
+                    processedResponse = "Engine synthesizer muted.";
+                } else {
+                    processedResponse = "Engine synthesizer is already muted.";
+                }
+            } else if (cmd.includes("unmute engine") || cmd.includes("unmute sound") || cmd.includes("turn on engine sound")) {
+                if (isEngineMuted) {
+                    document.getElementById('engine-sound-toggle').click();
+                    processedResponse = "Engine synthesizer activated.";
+                } else {
+                    processedResponse = "Engine synthesizer is already active.";
+                }
+            } else {
+                processedResponse = "I recognized: " + spokenText;
+            }
+
+            // Synthesize responsive Voice response speaking back directly to driver
+            speakFeedbackResponse(processedResponse);
+
+            // Close notification portal panel
+            setTimeout(retractSiriPanel, 2500);
+        }
+
+        function speakFeedbackResponse(speechPhrase) {
+            const voiceSynthesisUtterance = new SpeechSynthesisUtterance(speechPhrase);
+            voiceSynthesisUtterance.rate = 1.1;
+            window.speechSynthesis.speak(voiceSynthesisUtterance);
+        }
+
+        document.getElementById('siri-trigger-btn').addEventListener('click', triggerSiriVoiceEngine);
+
+        function adjustClimateValue(delta) {
+            if (!isAcPowerOn) toggleAcPower(true);
+            cabinClimateVal += delta;
+            document.getElementById('climate-num-display').innerText = `${cabinClimateVal}°`;
+        }
+
+        function toggleAcPower(state) {
+            if (state !== undefined) {
+                isAcPowerOn = state;
+            } else {
+                isAcPowerOn = !isAcPowerOn;
+            }
+            const display = document.getElementById('climate-num-display');
+            if (isAcPowerOn) {
+                display.innerText = `${cabinClimateVal}°`;
+                display.classList.remove('text-slate-600');
+                display.classList.add('text-white');
+            } else {
+                display.innerText = `OFF`;
+                display.classList.remove('text-white');
+                display.classList.add('text-slate-600');
+            }
+        }
+
+        // --- WEB AUDIO AUDIO FILE STREAM CONTROLLER ---
+        const audioEngine = new Audio();
+        let trackQueueSequence = [];
+        let runningTrackIndex = -1;
+
+        const fileUploader = document.getElementById('media-core-input');
+        const musicListViewport = document.getElementById('music-list-viewport');
+        const volSlider = document.getElementById('volume-slider');
+
+        volSlider.addEventListener('input', (e) => { audioEngine.volume = e.target.value; });
+        audioEngine.volume = 0.7;
+
+        fileUploader.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            if (files.length === 0) return;
+            trackQueueSequence = files;
+            buildDashboardMusicQueue();
+            executeTrackRoutingIndex(0, true);
+        });
+
+        function buildDashboardMusicQueue() {
+            musicListViewport.innerHTML = '';
+            trackQueueSequence.forEach((file, idx) => {
+                const trackRowNode = document.createElement('div');
+                trackRowNode.className = `p-3 rounded-xl cursor-pointer flex items-center justify-between border transition ${idx === runningTrackIndex ? 'bg-white/10 text-white border-white/5 font-semibold' : 'border-transparent text-slate-400 hover:bg-white/5'}`;
+                trackRowNode.innerHTML = `
+                    <div class="flex items-center gap-3 truncate">
+                        <div class="w-6 h-6 rounded-md bg-white/5 flex items-center justify-center text-xs">${idx + 1}</div>
+                        <span class="truncate">${file.name.replace(/\.[^/.]+$/, "")}</span>
+                    </div>
+                    <i data-lucide="${idx === runningTrackIndex ? 'volume-2' : 'play'}" class="w-4 h-4 text-slate-400"></i>
+                `;
+                trackRowNode.addEventListener('click', () => executeTrackRoutingIndex(idx, true));
+                musicListViewport.appendChild(trackRowNode);
+            });
+            lucide.createIcons();
+        }
+
+        function executeTrackRoutingIndex(index, runAutoplay = false) {
+            if (index < 0 || index >= trackQueueSequence.length) return;
+            runningTrackIndex = index;
+            const file = trackQueueSequence[index];
+
+            if (audioEngine.src) URL.revokeObjectURL(audioEngine.src);
+            audioEngine.src = URL.createObjectURL(file);
+            
+            const trackNameClean = file.name.replace(/\.[^/.]+$/, "");
+            document.getElementById('dash-track-title').innerText = trackNameClean;
+            document.getElementById('dash-track-artist').innerText = "Local CarPlay Track Node";
+            document.getElementById('full-track-title').innerText = trackNameClean;
+            document.getElementById('full-track-artist').innerText = "Streaming via Media Storage Drive";
+
+            buildDashboardMusicQueue();
+
+            if (runAutoplay) {
+                audioEngine.play();
+                updatePlayIconsState(true);
+            }
+        }
+
+        function updatePlayIconsState(isPlaying) {
+            const list = ['dash-icon-play', 'full-icon-play'];
+            const pauseList = ['dash-icon-pause', 'full-icon-pause'];
+            
+            list.forEach(id => isPlaying ? document.getElementById(id).classList.add('hidden') : document.getElementById(id).classList.remove('hidden'));
+            pauseList.forEach(id => isPlaying ? document.getElementById(id).classList.remove('hidden') : document.getElementById(id).classList.add('hidden'));
+            
+            if (isPlaying) {
+                document.getElementById('album-art-glow').classList.add('animate-pulse');
+                document.getElementById('full-album-art').classList.add('animate-pulse');
+            } else {
+                document.getElementById('album-art-glow').classList.remove('animate-pulse');
+                document.getElementById('full-album-art').classList.remove('animate-pulse');
+            }
+        }
+
+        function playToggleSubroutine() {
+            if (runningTrackIndex === -1 && trackQueueSequence.length > 0) { executeTrackRoutingIndex(0, true); return; }
+            if (runningTrackIndex === -1) return;
+
+            if (audioEngine.paused) {
+                audioEngine.play(); updatePlayIconsState(true);
+            } else {
+                audioEngine.pause(); updatePlayIconsState(false);
+            }
+        }
+
+        ['dash-ctrl-play', 'full-ctrl-play'].forEach(id => document.getElementById(id).addEventListener('click', playToggleSubroutine));
+        
+        function nextTrack() { if(trackQueueSequence.length) executeTrackRoutingIndex((runningTrackIndex + 1) % trackQueueSequence.length, true); }
+        function prevTrack() { if(trackQueueSequence.length) executeTrackRoutingIndex((runningTrackIndex - 1 + trackQueueSequence.length) % trackQueueSequence.length, true); }
+
+        document.getElementById('dash-ctrl-next').addEventListener('click', nextTrack);
+        document.getElementById('full-ctrl-next').addEventListener('click', nextTrack);
+        document.getElementById('dash-ctrl-prev').addEventListener('click', prevTrack);
+        document.getElementById('full-ctrl-prev').addEventListener('click', prevTrack);
+        
+        audioEngine.addEventListener('ended', nextTrack);
+        
+        audioEngine.addEventListener('timeupdate', () => {
+            if (!audioEngine.duration) return;
+            const currentPercentageTrack = (audioEngine.currentTime / audioEngine.duration) * 100;
+            document.getElementById('dash-progress-bar').style.width = `${currentPercentageTrack}%`;
+            document.getElementById('full-dash-progress').style.width = `${currentPercentageTrack}%`;
+            
+            const timeFormatted = parseDigitalTimeOutput(audioEngine.currentTime);
+            document.getElementById('dash-time-current').innerText = timeFormatted;
+            document.getElementById('dash-time-duration').innerText = parseDigitalTimeOutput(audioEngine.duration);
+        });
+
+        ['dash-progress-timeline', 'full-progress-timeline'].forEach(id => {
+            document.getElementById(id).addEventListener('click', (e) => {
+                if (!audioEngine.duration) return;
+                const timelineRect = e.currentTarget.getBoundingClientRect();
+                audioEngine.currentTime = ((e.clientX - timelineRect.left) / timelineRect.width) * audioEngine.duration;
+            });
+        });
+
+        function parseDigitalTimeOutput(s) { const m=Math.floor(s/60); const sec=Math.floor(s%60).toString().padStart(2,'0'); return `${m}:${sec}`; }
+
+        // --- NATIVE SYSTEM TIMER DISPLAY REFRESH LOOP ---
+        function runCarplayClock() {
+            const now = new Date();
+            document.getElementById('sidebar-time').innerText = `${now.getHours() % 12 || 12}:${now.getMinutes().toString().padStart(2, '0')}`;
+        }
+        setInterval(runCarplayClock, 1000); runCarplayClock();
+
+        window.onload = function () {
+            setTimeout(() => { splitMap.invalidateSize(); fullMap.invalidateSize(); }, 300);
+        }
+    </script>
+</body>
+</html>
+```
